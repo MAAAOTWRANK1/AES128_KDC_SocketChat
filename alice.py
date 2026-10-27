@@ -18,57 +18,82 @@ def run_scenario(kdc_host: str, kdc_port: int, bob_host: str, bob_port: int):
     req = f"{config['ID']}|{config['TARGET_ID']}|{n1}"
 
     # Langkah 1 & 2: Hubungi KDC
+    ticket_hex = ""
+    ks = ""
     try:
-        kdc_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        kdc_sock.connect((kdc_host, kdc_port))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as kdc_sock:
+            kdc_sock.connect((kdc_host, kdc_port))
 
-        print(f"\n[Langkah 1] Kirim request ke KDC ({kdc_host}:{kdc_port}): {req}")
-        kdc_sock.sendall(req.encode('utf-8'))
+            print(f"\n[Langkah 1] Kirim request ke KDC ({kdc_host}:{kdc_port}): {req}")
+            chat.send_msg(kdc_sock, req)
 
-        step2_hex = kdc_sock.recv(4096).decode('utf-8').strip()
-        kdc_sock.close()
+            step2_hex = chat.recv_msg(kdc_sock)
+            if not step2_hex:
+                print("[!] Tidak ada respon dari KDC.")
+                return
 
-        print(f"[Langkah 2] Terima dari KDC (Hex): {step2_hex}")
-        step2_plain = aes.decrypt(step2_hex, config["KA"])
-        ks, target, recv_n1, ticket_hex = step2_plain.split('|')
+            print(f"[Langkah 2] Terima dari KDC (Hex): {step2_hex}")
+            step2_plain = aes.decrypt(step2_hex, config["KA"])
+            ks, target, recv_n1, ticket_hex = step2_plain.split('|')
 
-        if recv_n1 != n1:
-            print(f"[!] Nonce N1 tidak cocok ({recv_n1} != {n1})!")
-            return
+            if recv_n1 != n1:
+                print(f"[!] Nonce N1 tidak cocok ({recv_n1} != {n1})!")
+                return
 
-        print(f"  Nonce N1 terverifikasi ({n1})")
-        print(f"  Session Key (KS) : {ks}")
-        print(f"  Tiket Bob (Hex)  : {ticket_hex}")
+            print(f"  Nonce N1 terverifikasi ({n1})")
+            print(f"  Session Key (KS) : {ks}")
+            print(f"  Tiket Bob (Hex)  : {ticket_hex}")
+    except ValueError as ve:
+        print(f"[!] Gagal dekripsi respon KDC (kunci KA mungkin salah): {ve}")
+        return
     except Exception as e:
         print(f"[!] Gagal pada KDC (Langkah 1-2): {e}")
         return
 
     # Langkah 3, 4, 5: Hubungi Bob
+    bob_sock = None
     try:
         bob_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         bob_sock.connect((bob_host, bob_port))
 
         print(f"\n[Langkah 3] Kirim Tiket ke Bob ({bob_host}:{bob_port})")
-        bob_sock.sendall(ticket_hex.encode('utf-8'))
+        chat.send_msg(bob_sock, ticket_hex)
 
-        step4_hex = bob_sock.recv(4096).decode('utf-8').strip()
+        step4_hex = chat.recv_msg(bob_sock)
+        if not step4_hex:
+            print("[!] Koneksi terputus saat menunggu tantangan Bob.")
+            bob_sock.close()
+            return
+
         n2_val = int(aes.decrypt(step4_hex, ks))
         print(f"[Langkah 4] Terima tantangan N2 dari Bob: {n2_val} (Hex: {step4_hex})")
 
         fn2_val = n2_val - 1
         step5_hex = aes.encrypt(str(fn2_val), ks)
         print(f"[Langkah 5] Kirim f(N2) = {fn2_val} ke Bob (Hex: {step5_hex})")
-        bob_sock.sendall(step5_hex.encode('utf-8'))
+        chat.send_msg(bob_sock, step5_hex)
 
-        ack = bob_sock.recv(1024).decode('utf-8').strip()
+        ack = chat.recv_msg(bob_sock)
         if ack == "OK":
             print("[OK] Handshake sukses! Masuk ke ruang chat.")
             chat.start_chat(bob_sock, config["TARGET_ID"], ks, "Alice")
         else:
             print("[!] Handshake ditolak oleh Bob.")
             bob_sock.close()
+    except ValueError as ve:
+        print(f"[!] Gagal dekripsi data dari Bob: {ve}")
+        if bob_sock:
+            try:
+                bob_sock.close()
+            except Exception:
+                pass
     except Exception as e:
         print(f"[!] Gagal pada handshake Bob (Langkah 3-5): {e}")
+        if bob_sock:
+            try:
+                bob_sock.close()
+            except Exception:
+                pass
 
 
 def input_key(prompt: str) -> str:

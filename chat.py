@@ -1,8 +1,27 @@
 # chat.py
-# Modul sesi chat dua arah terenkripsi AES-128
+# Modul sesi chat dua arah dan framing pesan TCP
 import socket
 import threading
 import aes
+
+
+def send_msg(sock: socket.socket, msg: str):
+    """Kirim pesan berbingkai dengan penutup newline '\\n'."""
+    sock.sendall((msg.strip() + "\n").encode('utf-8'))
+
+
+def recv_msg(sock: socket.socket) -> str:
+    """Membaca aliran TCP byte-per-byte hingga karakter '\\n' atau EOF."""
+    buf = bytearray()
+    while True:
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        if chunk == b'\n':
+            break
+        buf.extend(chunk)
+    return buf.decode('utf-8').strip()
+
 
 def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
     """Menjalankan sesi chat dua arah (full duplex) menggunakan AES-128."""
@@ -14,7 +33,7 @@ def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
     def recv_loop():
         while active[0]:
             try:
-                data = conn.recv(4096).decode('utf-8').strip()
+                data = recv_msg(conn)
                 if not data or data == "CMD_LEAVE":
                     print(f"\n[INFO] {peer} keluar dari chat. Tekan Enter untuk kembali.")
                     active[0] = False
@@ -22,30 +41,31 @@ def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
                 plain = aes.decrypt(data, key)
                 print(f"\n[{peer}] {plain} (Hex: {data})")
                 print(f"{my_name} > ", end="", flush=True)
+            except ValueError as ve:
+                print(f"\n[!] Pesan hex rusak dari {peer}: {ve}")
+                print(f"{my_name} > ", end="", flush=True)
             except Exception:
                 active[0] = False
                 break
 
     threading.Thread(target=recv_loop, daemon=True).start()
 
-    while active[0]:
-        try:
+    try:
+        while active[0]:
             msg = input(f"{my_name} > ")
             if not active[0]:
                 break
             if msg.strip() == "/menu":
-                conn.sendall("CMD_LEAVE".encode('utf-8'))
+                send_msg(conn, "CMD_LEAVE")
                 active[0] = False
                 break
-            if not msg:
+            if not msg.strip():
                 continue
             cipher_hex = aes.encrypt(msg, key)
-            conn.sendall(cipher_hex.encode('utf-8'))
+            send_msg(conn, cipher_hex)
+    finally:
+        active[0] = False
+        try:
+            conn.close()
         except Exception:
-            active[0] = False
-            break
-
-    try:
-        conn.close()
-    except Exception:
-        pass
+            pass

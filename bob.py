@@ -13,47 +13,66 @@ config = {
 
 
 def wait_for_handshake(host: str, port: int):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
-    server.listen(1)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((host, port))
+        server.listen(1)
 
-    print(f"\n[MENUNGGU] Bob siaga di {host}:{port}...")
-    try:
-        conn, addr = server.accept()
-        # Langkah 3: Terima dan buka Tiket dari Alice
-        ticket_hex = conn.recv(4096).decode('utf-8').strip()
-        ticket_plain = aes.decrypt(ticket_hex, config["KB"])
-        ks, id_a = ticket_plain.split('|')
+        print(f"\n[MENUNGGU] Bob siaga di {host}:{port}...")
+        conn = None
+        try:
+            conn, addr = server.accept()
+            # Langkah 3: Terima dan buka Tiket dari Alice
+            ticket_hex = chat.recv_msg(conn)
+            if not ticket_hex:
+                print("[!] Koneksi terputus saat menerima tiket.")
+                return
 
-        print(f"\n[Langkah 3] Terima Tiket dari {id_a} ({addr[0]})")
-        print(f"  Tiket Masuk (Hex) : {ticket_hex}")
-        print(f"  Session Key (KS)  : {ks}")
+            ticket_plain = aes.decrypt(ticket_hex, config["KB"])
+            ks, id_a = ticket_plain.split('|')
 
-        # Langkah 4: Kirim tantangan N2 terenkripsi KS
-        n2 = random.randint(100000, 999999)
-        step4_hex = aes.encrypt(str(n2), ks)
-        print(f"[Langkah 4] Kirim tantangan N2 ke {id_a}: {n2} (Hex: {step4_hex})")
-        conn.sendall(step4_hex.encode('utf-8'))
+            print(f"\n[Langkah 3] Terima Tiket dari {id_a} ({addr[0]})")
+            print(f"  Tiket Masuk (Hex) : {ticket_hex}")
+            print(f"  Session Key (KS)  : {ks}")
 
-        # Langkah 5: Verifikasi balasan f(N2) = N2 - 1
-        step5_hex = conn.recv(4096).decode('utf-8').strip()
-        step5_plain = aes.decrypt(step5_hex, ks)
-        expected = str(n2 - 1)
+            # Langkah 4: Kirim tantangan N2 terenkripsi KS
+            n2 = random.randint(100000, 999999)
+            step4_hex = aes.encrypt(str(n2), ks)
+            print(f"[Langkah 4] Kirim tantangan N2 ke {id_a}: {n2} (Hex: {step4_hex})")
+            chat.send_msg(conn, step4_hex)
 
-        print(f"[Langkah 5] Terima balasan f(N2): {step5_plain} (Harapan: {expected})")
-        if step5_plain == expected:
-            print("[OK] Verifikasi sukses! Masuk ke ruang chat.")
-            conn.sendall("OK".encode('utf-8'))
-            chat.start_chat(conn, id_a, ks, "Bob")
-        else:
-            print("[!] Verifikasi gagal. Nonce tidak cocok.")
-            conn.sendall("FAIL".encode('utf-8'))
-            conn.close()
-    except Exception as e:
-        print(f"[!] Error handshake Bob: {e}")
-    finally:
-        server.close()
+            # Langkah 5: Verifikasi balasan f(N2) = N2 - 1
+            step5_hex = chat.recv_msg(conn)
+            if not step5_hex:
+                print("[!] Koneksi terputus saat menerima balasan Langkah 5.")
+                return
+
+            step5_plain = aes.decrypt(step5_hex, ks)
+            expected = str(n2 - 1)
+
+            print(f"[Langkah 5] Terima balasan f(N2): {step5_plain} (Harapan: {expected})")
+            if step5_plain == expected:
+                print("[OK] Verifikasi sukses! Masuk ke ruang chat.")
+                chat.send_msg(conn, "OK")
+                chat.start_chat(conn, id_a, ks, "Bob")
+            else:
+                print("[!] Verifikasi gagal. Nonce tidak cocok.")
+                chat.send_msg(conn, "FAIL")
+                conn.close()
+        except ValueError as ve:
+            print(f"[!] Data/kunci tidak valid: {ve}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[!] Error handshake Bob: {e}")
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 def input_key(prompt: str) -> str:

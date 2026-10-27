@@ -6,6 +6,7 @@ import random
 import string
 import argparse
 import aes
+import chat
 
 keys = {
     "ALICE": "master_key_alice",
@@ -20,57 +21,56 @@ def generate_session_key() -> str:
 
 
 def handle_client(conn: socket.socket, addr):
-    try:
-        data = conn.recv(4096).decode('utf-8').strip()
-        if not data:
-            return
+    with conn:
+        try:
+            data = chat.recv_msg(conn)
+            if not data:
+                return
 
-        print(f"\n[Langkah 1] Request dari {addr[0]}: {data}")
-        parts = data.split('|')
-        if len(parts) != 3:
-            return
+            print(f"\n[Langkah 1] Request dari {addr[0]}: {data}")
+            parts = data.split('|')
+            if len(parts) != 3:
+                print("[!] Format request tidak valid.")
+                return
 
-        id_a, id_b, n1 = parts
-        ka = keys.get(id_a, "master_key_alice")
-        kb = keys.get(id_b, "master_key_bob00")
-        ks = generate_session_key()
+            id_a, id_b, n1 = parts
+            ka = keys.get(id_a, "master_key_alice")
+            kb = keys.get(id_b, "master_key_bob00")
+            ks = generate_session_key()
 
-        # Tiket untuk Bob: E(Kb, [Ks || ID_A])
-        ticket_plain = f"{ks}|{id_a}"
-        ticket_hex = aes.encrypt(ticket_plain, kb)
+            # Tiket untuk Bob: E(Kb, [Ks || ID_A])
+            ticket_plain = f"{ks}|{id_a}"
+            ticket_hex = aes.encrypt(ticket_plain, kb)
 
-        # Paket untuk Alice: E(Ka, [Ks || ID_B || N1 || Tiket_Bob])
-        alice_plain = f"{ks}|{id_b}|{n1}|{ticket_hex}"
-        alice_hex = aes.encrypt(alice_plain, ka)
+            # Paket untuk Alice: E(Ka, [Ks || ID_B || N1 || Tiket_Bob])
+            alice_plain = f"{ks}|{id_b}|{n1}|{ticket_hex}"
+            alice_hex = aes.encrypt(alice_plain, ka)
 
-        print(f"[Langkah 2] Distribusi Kunci ({id_a} & {id_b})")
-        print(f"  KA: {ka} | KB: {kb} | KS: {ks}")
-        print(f"  Tiket Bob   : {ticket_hex}")
-        print(f"  Paket Alice : {alice_hex}")
+            print(f"[Langkah 2] Distribusi Kunci ({id_a} & {id_b})")
+            print(f"  KA: {ka} | KB: {kb} | KS: {ks}")
+            print(f"  Tiket Bob   : {ticket_hex}")
+            print(f"  Paket Alice : {alice_hex}")
 
-        conn.sendall(alice_hex.encode('utf-8'))
-    except Exception as e:
-        print(f"[!] Error KDC: {e}")
-    finally:
-        conn.close()
+            chat.send_msg(conn, alice_hex)
+        except Exception as e:
+            print(f"[!] Error KDC: {e}")
 
 
 def server_loop(host: str, port: int):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
-    server.listen(5)
-    server.settimeout(1.0)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((host, port))
+        server.listen(5)
+        server.settimeout(1.0)
 
-    while running:
-        try:
-            conn, addr = server.accept()
-            threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
-        except socket.timeout:
-            continue
-        except Exception:
-            break
-    server.close()
+        while running:
+            try:
+                conn, addr = server.accept()
+                threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+            except socket.timeout:
+                continue
+            except Exception:
+                break
 
 
 def input_key(prompt: str) -> str:
