@@ -2,11 +2,9 @@
 # Entitas Bob (Penerima Tiket dan Penantang Handshake)
 import socket
 import random
+import argparse
 import aes
 import chat
-
-BOB_IP = "192.168.100.3"
-BOB_PORT = 5002
 
 config = {
     "ID": "BOB",
@@ -14,13 +12,13 @@ config = {
 }
 
 
-def wait_for_handshake():
+def wait_for_handshake(host: str, port: int):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((BOB_IP, BOB_PORT))
+    server.bind((host, port))
     server.listen(1)
 
-    print(f"\n[MENUNGGU] Bob siaga di {BOB_IP}:{BOB_PORT}...")
+    print(f"\n[MENUNGGU] Bob siaga di {host}:{port}...")
     try:
         conn, addr = server.accept()
         # Langkah 3: Terima dan buka Tiket dari Alice
@@ -58,8 +56,21 @@ def wait_for_handshake():
         server.close()
 
 
+def input_key(prompt: str) -> str:
+    val = input(prompt).strip()
+    if len(val.encode('utf-8')) != 16:
+        print(f"[!] Ditolak: Kunci harus tepat 16 karakter ASCII (diberikan {len(val)})!")
+        return ""
+    return val
+
+
 def main():
-    print(f"Bob aktif (KB: {config['KB']})")
+    parser = argparse.ArgumentParser(description="Bob Entity")
+    parser.add_argument("--host", default="0.0.0.0", help="IP address untuk listen (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=5002, help="Port untuk listen (default: 5002)")
+    args = parser.parse_args()
+
+    print(f"Bob aktif mendengarkan di {args.host}:{args.port} (KB: {config['KB']})")
     while True:
         print("\n--- MENU BOB ---")
         print("1. Siaga Terima Koneksi & Chat dari Alice")
@@ -68,9 +79,9 @@ def main():
 
         c = input("Pilihan > ").strip()
         if c == "1":
-            wait_for_handshake()
+            wait_for_handshake(args.host, args.port)
         elif c == "2":
-            val = input("KB Baru (ASCII): ").strip()
+            val = input_key("KB Baru (16 karakter ASCII): ")
             if val:
                 config["KB"] = val
                 print(f"[OK] KB diubah: {config['KB']}")

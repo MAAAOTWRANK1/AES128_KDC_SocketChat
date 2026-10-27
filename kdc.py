@@ -4,10 +4,8 @@ import socket
 import threading
 import random
 import string
+import argparse
 import aes
-
-KDC_IP = "192.168.100.1"
-KDC_PORT = 5000
 
 keys = {
     "ALICE": "master_key_alice",
@@ -17,7 +15,6 @@ running = True
 
 
 def generate_session_key() -> str:
-    # Bangkitkan 16 karakter acak ASCII untuk session key AES-128
     chars = string.ascii_letters + string.digits
     return ''.join(random.choices(chars, k=16))
 
@@ -58,10 +55,10 @@ def handle_client(conn: socket.socket, addr):
         conn.close()
 
 
-def server_loop():
+def server_loop(host: str, port: int):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((KDC_IP, KDC_PORT))
+    server.bind((host, port))
     server.listen(5)
     server.settimeout(1.0)
 
@@ -76,10 +73,23 @@ def server_loop():
     server.close()
 
 
+def input_key(prompt: str) -> str:
+    val = input(prompt).strip()
+    if len(val.encode('utf-8')) != 16:
+        print(f"[!] Ditolak: Kunci harus tepat 16 karakter ASCII (diberikan {len(val)})!")
+        return ""
+    return val
+
+
 def main():
     global running
-    threading.Thread(target=server_loop, daemon=True).start()
-    print(f"KDC aktif di {KDC_IP}:{KDC_PORT}")
+    parser = argparse.ArgumentParser(description="KDC Server")
+    parser.add_argument("--host", default="0.0.0.0", help="IP address untuk listen (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=5000, help="Port untuk listen (default: 5000)")
+    args = parser.parse_args()
+
+    threading.Thread(target=server_loop, args=(args.host, args.port), daemon=True).start()
+    print(f"KDC aktif mendengarkan di {args.host}:{args.port}")
 
     while True:
         print("\n--- MENU KDC ---")
@@ -93,12 +103,12 @@ def main():
             print(f"KA : {keys['ALICE']}")
             print(f"KB : {keys['BOB']}")
         elif choice == "2":
-            val = input("KA Baru (ASCII): ").strip()
+            val = input_key("KA Baru (16 karakter ASCII): ")
             if val:
                 keys["ALICE"] = val
                 print(f"[OK] KA diubah: {keys['ALICE']}")
         elif choice == "3":
-            val = input("KB Baru (ASCII): ").strip()
+            val = input_key("KB Baru (16 karakter ASCII): ")
             if val:
                 keys["BOB"] = val
                 print(f"[OK] KB diubah: {keys['BOB']}")

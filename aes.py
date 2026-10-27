@@ -59,9 +59,9 @@ def gmul(a: int, b: int) -> int:
 
 def prepare_key(key_str: str) -> bytes:
     key_bytes = key_str.encode('utf-8')
-    if len(key_bytes) < 16:
-        return key_bytes.ljust(16, b'\x00')
-    return key_bytes[:16]
+    if len(key_bytes) != 16:
+        raise ValueError(f"Panjang kunci harus tepat 16 byte (diberikan: {len(key_bytes)} byte)!")
+    return key_bytes
 
 
 def pad_pkcs7(data: bytes) -> bytes:
