@@ -8,7 +8,8 @@ import chat
 
 config = {
     "ID": "BOB",
-    "KB": "master_key_bob00"
+    "KB": "master_key_bob00",
+    "MODE": "ECB"
 }
 
 
@@ -54,7 +55,7 @@ def wait_for_handshake(host: str, port: int):
             if step5_plain == expected:
                 print("[OK] Verifikasi sukses! Masuk ke ruang chat.")
                 chat.send_msg(conn, "OK")
-                chat.start_chat(conn, id_a, ks, "Bob")
+                chat.start_chat(conn, id_a, ks, "Bob", mode=config["MODE"])
             else:
                 print("[!] Verifikasi gagal. Nonce tidak cocok.")
                 chat.send_msg(conn, "FAIL")
@@ -94,7 +95,8 @@ def main():
         print("\n--- MENU BOB ---")
         print("1. Siaga Terima Koneksi & Chat dari Alice")
         print(f"2. Ubah Master Key Bob (KB) [Saat ini: {config['KB']}]")
-        print("3. Keluar")
+        print(f"3. Ganti Mode Operasi AES [Saat ini: {config['MODE']}] (1: ECB, 2: CBC)")
+        print("4. Keluar")
 
         c = input("Pilihan > ").strip()
         if c == "1":
@@ -105,6 +107,13 @@ def main():
                 config["KB"] = val
                 print(f"[OK] KB diubah: {config['KB']}")
         elif c == "3":
+            m = input("Pilih mode (1 = ECB, 2 = CBC): ").strip()
+            if m == "1":
+                config["MODE"] = "ECB"
+            elif m == "2":
+                config["MODE"] = "CBC"
+            print(f"[OK] Mode operasi diatur ke: {config['MODE']}")
+        elif c == "4":
             break
 
 

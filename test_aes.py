@@ -34,6 +34,36 @@ def test_nist_sp800_38a_ecb():
     print("OK (Lolos)")
 
 
+def test_nist_sp800_38a_cbc():
+    print("[3/6] Uji NIST SP 800-38A CBC-AES128 (2 Blok)...", end=" ")
+    key_hex = "2b7e151628aed2a6abf7158809cf4f3c"
+    iv = bytes.fromhex("000102030405060708090a0b0c0d0e0f")
+    key_ascii = bytes.fromhex(key_hex).decode('latin1')
+
+    # NIST plaintext blocks
+    pt_bytes = bytes.fromhex("6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51")
+    rk = aes.key_expansion(bytes.fromhex(key_hex))
+
+    # Test raw block chaining directly against NIST standard
+    c1 = aes.encrypt_block(aes.xor_bytes(pt_bytes[:16], iv), rk)
+    assert c1.hex() == "7649abac8119b246cee98e9b12e9197d"
+    c2 = aes.encrypt_block(aes.xor_bytes(pt_bytes[16:], c1), rk)
+    assert c2.hex() == "5086cb9b507219ee95db113a917678b2"
+
+    # Test decrypt block
+    d2 = aes.xor_bytes(aes.decrypt_block(c2, rk), c1)
+    assert d2 == pt_bytes[16:]
+    d1 = aes.xor_bytes(aes.decrypt_block(c1, rk), iv)
+    assert d1 == pt_bytes[:16]
+
+    # Test full encrypt_cbc and decrypt_cbc roundtrip
+    msg = "Pesan rahasia dengan CBC Mode"
+    ct_cbc = aes.encrypt_cbc(msg, "kunci_rahasia_16")
+    dec_cbc = aes.decrypt_cbc(ct_cbc, "kunci_rahasia_16")
+    assert dec_cbc == msg
+    print("OK (Lolos)")
+
+
 def test_padding():
     print("[3/5] Uji PKCS#7 Padding (0, 15, 16, 17, 32 Byte)...", end=" ")
     test_lengths = [0, 15, 16, 17, 32]
@@ -83,6 +113,7 @@ if __name__ == "__main__":
     print("=== PENGUJIAN UNIT AES-128 MANUAL ===")
     test_fips_197()
     test_nist_sp800_38a_ecb()
+    test_nist_sp800_38a_cbc()
     test_padding()
     test_invalid_key()
     test_random_roundtrip()

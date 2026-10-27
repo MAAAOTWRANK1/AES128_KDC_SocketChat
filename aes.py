@@ -1,5 +1,6 @@
 # aes.py
 # Implementasi Manual AES-128 (ECB Mode & PKCS#7 Padding)
+import os
 
 S_BOX = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -193,7 +194,13 @@ def decrypt_block(block: bytes, round_keys: list) -> bytes:
     return matrix_to_bytes(state)
 
 
-def encrypt(plaintext: str, key: str) -> str:
+def xor_bytes(a: bytes, b: bytes) -> bytes:
+    return bytes(x ^ y for x, y in zip(a, b))
+
+
+def encrypt(plaintext: str, key: str, mode: str = "ECB") -> str:
+    if mode.upper() == "CBC":
+        return encrypt_cbc(plaintext, key)
     key_bytes = prepare_key(key)
     round_keys = key_expansion(key_bytes)
     padded = pad_pkcs7(plaintext.encode('utf-8'))
@@ -203,7 +210,9 @@ def encrypt(plaintext: str, key: str) -> str:
     return out.hex().upper()
 
 
-def decrypt(ciphertext_hex: str, key: str) -> str:
+def decrypt(ciphertext_hex: str, key: str, mode: str = "ECB") -> str:
+    if mode.upper() == "CBC":
+        return decrypt_cbc(ciphertext_hex, key)
     key_bytes = prepare_key(key)
     round_keys = key_expansion(key_bytes)
     raw = bytes.fromhex(ciphertext_hex)
@@ -212,6 +221,41 @@ def decrypt(ciphertext_hex: str, key: str) -> str:
     out = bytearray()
     for i in range(0, len(raw), 16):
         out.extend(decrypt_block(raw[i:i+16], round_keys))
+    return unpad_pkcs7(bytes(out)).decode('utf-8')
+
+
+def encrypt_cbc(plaintext: str, key: str, iv: bytes = None) -> str:
+    key_bytes = prepare_key(key)
+    round_keys = key_expansion(key_bytes)
+    if iv is None:
+        iv = os.urandom(16)
+    padded = pad_pkcs7(plaintext.encode('utf-8'))
+    out = bytearray(iv)  # IV 16 byte disimpan di depan ciphertext
+    prev = iv
+    for i in range(0, len(padded), 16):
+        block = padded[i:i+16]
+        xored = xor_bytes(block, prev)
+        enc = encrypt_block(xored, round_keys)
+        out.extend(enc)
+        prev = enc
+    return out.hex().upper()
+
+
+def decrypt_cbc(ciphertext_hex: str, key: str) -> str:
+    key_bytes = prepare_key(key)
+    round_keys = key_expansion(key_bytes)
+    raw = bytes.fromhex(ciphertext_hex)
+    if len(raw) < 32 or len(raw) % 16 != 0:
+        raise ValueError("Ciphertext CBC harus minimal 32 byte (IV 16 byte + minimal 1 blok)!")
+    iv = raw[:16]
+    blocks = raw[16:]
+    out = bytearray()
+    prev = iv
+    for i in range(0, len(blocks), 16):
+        block = blocks[i:i+16]
+        dec = decrypt_block(block, round_keys)
+        out.extend(xor_bytes(dec, prev))
+        prev = block
     return unpad_pkcs7(bytes(out)).decode('utf-8')
 
 

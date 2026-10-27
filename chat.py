@@ -23,11 +23,11 @@ def recv_msg(sock: socket.socket) -> str:
     return buf.decode('utf-8').strip()
 
 
-def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
-    """Menjalankan sesi chat dua arah (full duplex) menggunakan AES-128."""
+def start_chat(conn: socket.socket, peer: str, key: str, my_name: str, mode: str = "ECB"):
+    """Menjalankan sesi chat dua arah (full duplex) menggunakan AES-128 (ECB/CBC)."""
     active = [True]
 
-    print(f"\n[CHAT] Sesi aman dengan {peer} aktif (Key: {key})")
+    print(f"\n[CHAT] Sesi aman dengan {peer} aktif (Key: {key} | Mode: {mode})")
     print("[CHAT] Ketik '/menu' untuk keluar ke menu utama.\n")
 
     def recv_loop():
@@ -38,7 +38,11 @@ def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
                     print(f"\n[INFO] {peer} keluar dari chat. Tekan Enter untuk kembali.")
                     active[0] = False
                     break
-                plain = aes.decrypt(data, key)
+                if ":" in data:
+                    msg_mode, ct = data.split(":", 1)
+                    plain = aes.decrypt(ct, key, mode=msg_mode)
+                else:
+                    plain = aes.decrypt(data, key, mode=mode)
                 print(f"\n[{peer}] {plain} (Hex: {data})")
                 print(f"{my_name} > ", end="", flush=True)
             except ValueError as ve:
@@ -61,8 +65,8 @@ def start_chat(conn: socket.socket, peer: str, key: str, my_name: str):
                 break
             if not msg.strip():
                 continue
-            cipher_hex = aes.encrypt(msg, key)
-            send_msg(conn, cipher_hex)
+            cipher_hex = aes.encrypt(msg, key, mode=mode)
+            send_msg(conn, f"{mode}:{cipher_hex}")
     finally:
         active[0] = False
         try:

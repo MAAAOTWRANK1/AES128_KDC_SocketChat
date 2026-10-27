@@ -9,7 +9,8 @@ import chat
 config = {
     "ID": "ALICE",
     "TARGET_ID": "BOB",
-    "KA": "master_key_alice"
+    "KA": "master_key_alice",
+    "MODE": "ECB"
 }
 
 
@@ -76,7 +77,7 @@ def run_scenario(kdc_host: str, kdc_port: int, bob_host: str, bob_port: int):
         ack = chat.recv_msg(bob_sock)
         if ack == "OK":
             print("[OK] Handshake sukses! Masuk ke ruang chat.")
-            chat.start_chat(bob_sock, config["TARGET_ID"], ks, "Alice")
+            chat.start_chat(bob_sock, config["TARGET_ID"], ks, "Alice", mode=config["MODE"])
         else:
             print("[!] Handshake ditolak oleh Bob.")
             bob_sock.close()
@@ -119,7 +120,8 @@ def main():
         print("\n--- MENU ALICE ---")
         print("1. Mulai Skenario KDC & Chat dengan Bob")
         print(f"2. Ubah Master Key Alice (KA) [Saat ini: {config['KA']}]")
-        print("3. Keluar")
+        print(f"3. Ganti Mode Operasi AES [Saat ini: {config['MODE']}] (1: ECB, 2: CBC)")
+        print("4. Keluar")
 
         c = input("Pilihan > ").strip()
         if c == "1":
@@ -130,6 +132,13 @@ def main():
                 config["KA"] = val
                 print(f"[OK] KA diubah: {config['KA']}")
         elif c == "3":
+            m = input("Pilih mode (1 = ECB, 2 = CBC): ").strip()
+            if m == "1":
+                config["MODE"] = "ECB"
+            elif m == "2":
+                config["MODE"] = "CBC"
+            print(f"[OK] Mode operasi diatur ke: {config['MODE']}")
+        elif c == "4":
             break
 
 
