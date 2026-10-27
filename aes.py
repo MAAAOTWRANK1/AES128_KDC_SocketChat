@@ -161,20 +161,45 @@ def inv_mix_columns(state: list):
         state[3][c] = gmul(a[0], 0x0b) ^ gmul(a[1], 0x0d) ^ gmul(a[2], 0x09) ^ gmul(a[3], 0x0e)
 
 
+VERBOSE = False
+
+
+def print_state_matrix(title: str, state: list):
+    print(f"\n  [State AES: {title}]")
+    for r in range(4):
+        print("    " + " ".join(f"{state[r][c]:02x}" for c in range(4)))
+
+
 def encrypt_block(block: bytes, round_keys: list) -> bytes:
     state = bytes_to_matrix(block)
     add_round_key(state, round_keys[0])
+    if VERBOSE:
+        print_state_matrix("Round 0 (Initial AddRoundKey)", state)
 
     for round_num in range(1, 10):
         sub_bytes(state)
+        if VERBOSE and round_num == 1:
+            print_state_matrix("Round 1 After SubBytes", state)
         shift_rows(state)
+        if VERBOSE and round_num == 1:
+            print_state_matrix("Round 1 After ShiftRows", state)
         mix_columns(state)
+        if VERBOSE and round_num == 1:
+            print_state_matrix("Round 1 After MixColumns", state)
         add_round_key(state, round_keys[round_num])
+        if VERBOSE and round_num == 1:
+            print_state_matrix("Round 1 After AddRoundKey", state)
 
     # Round 10 tanpa MixColumns untuk simetri struktur enkripsi-dekripsi
     sub_bytes(state)
+    if VERBOSE:
+        print_state_matrix("Round 10 After SubBytes", state)
     shift_rows(state)
+    if VERBOSE:
+        print_state_matrix("Round 10 After ShiftRows", state)
     add_round_key(state, round_keys[10])
+    if VERBOSE:
+        print_state_matrix("Round 10 After AddRoundKey (Final)", state)
     return matrix_to_bytes(state)
 
 

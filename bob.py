@@ -96,7 +96,8 @@ def main():
         print("1. Siaga Terima Koneksi & Chat dari Alice")
         print(f"2. Ubah Master Key Bob (KB) [Saat ini: {config['KB']}]")
         print(f"3. Ganti Mode Operasi AES [Saat ini: {config['MODE']}] (1: ECB, 2: CBC)")
-        print("4. Keluar")
+        print(f"4. Toggle Mode Verbose AES [Saat ini: {'Aktif' if aes.VERBOSE else 'Nonaktif'}]")
+        print("5. Keluar")
 
         c = input("Pilihan > ").strip()
         if c == "1":
@@ -114,6 +115,9 @@ def main():
                 config["MODE"] = "CBC"
             print(f"[OK] Mode operasi diatur ke: {config['MODE']}")
         elif c == "4":
+            aes.VERBOSE = not aes.VERBOSE
+            print(f"[OK] Mode Verbose AES diatur ke: {'Aktif' if aes.VERBOSE else 'Nonaktif'}")
+        elif c == "5":
             break
 
 
