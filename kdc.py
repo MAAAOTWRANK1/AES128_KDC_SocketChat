@@ -1,4 +1,5 @@
 # kdc.py
+# Key Distribution Center (KDC) untuk Skenario Distribusi Kunci Simetris
 import socket
 import threading
 import random
@@ -8,19 +9,15 @@ import aes
 KDC_IP = "192.168.100.1"
 KDC_PORT = 5000
 
-# State penyimpanan kunci di KDC (Bisa diubah lewat menu interaktif)
-state = {
-    "KA": "master_key_alice",  # Master Key KDC - Alice (16 char ASCII)
-    "KB": "master_key_bob00",  # Master Key KDC - Bob (16 char ASCII)
-    "KS_MODE": "AUTO",         # AUTO (acak) atau MANUAL (ditentukan pengguna)
-    "KS_MANUAL": "session_key_1234",
-    "running": True
+keys = {
+    "ALICE": "master_key_alice",
+    "BOB": "master_key_bob00"
 }
+running = True
 
 
 def generate_session_key() -> str:
-    if state["KS_MODE"] == "MANUAL":
-        return state["KS_MANUAL"]
+    # Bangkitkan 16 karakter acak ASCII untuk session key AES-128
     chars = string.ascii_letters + string.digits
     return ''.join(random.choices(chars, k=16))
 
@@ -31,40 +28,32 @@ def handle_client(conn: socket.socket, addr):
         if not data:
             return
 
-        print(f"\n[LANGKAH 1] Menerima request dari {addr[0]}:{addr[1]}")
-        print(f"  -> Data masuk (ASCII) : {data}")
-
+        print(f"\n[Langkah 1] Request dari {addr[0]}: {data}")
         parts = data.split('|')
         if len(parts) != 3:
-            print("  [!] Format request tidak valid. Harus: IDA|IDB|N1")
             return
 
         id_a, id_b, n1 = parts
+        ka = keys.get(id_a, "master_key_alice")
+        kb = keys.get(id_b, "master_key_bob00")
         ks = generate_session_key()
 
-        print(f"\n[LANGKAH 2] Memproses distribusi kunci untuk {id_a} & {id_b}")
-        print(f"  -> Master Key Alice (KA) : {state['KA']}")
-        print(f"  -> Master Key Bob   (KB) : {state['KB']}")
-        print(f"  -> Session Key baru (KS) : {ks}")
-
-        # Buat Tiket untuk Bob: E(KB, [KS || IDA])
+        # Tiket untuk Bob: E(Kb, [Ks || ID_A])
         ticket_plain = f"{ks}|{id_a}"
-        ticket_cipher_hex = aes.encrypt(ticket_plain, state["KB"])
-        print(f"  -> Tiket Bob Plaintext   : {ticket_plain}")
-        print(f"  -> Tiket Bob Cipher (Hex): {ticket_cipher_hex}")
+        ticket_hex = aes.encrypt(ticket_plain, kb)
 
-        # Buat Paket untuk Alice: E(KA, [KS || IDB || N1 || Tiket_Hex])
-        alice_plain = f"{ks}|{id_b}|{n1}|{ticket_cipher_hex}"
-        alice_cipher_hex = aes.encrypt(alice_plain, state["KA"])
-        print(f"  -> Paket Alice Plaintext : {alice_plain}")
-        print(f"  -> Paket Alice (Hex)     : {alice_cipher_hex}")
+        # Paket untuk Alice: E(Ka, [Ks || ID_B || N1 || Tiket_Bob])
+        alice_plain = f"{ks}|{id_b}|{n1}|{ticket_hex}"
+        alice_hex = aes.encrypt(alice_plain, ka)
 
-        conn.sendall(alice_cipher_hex.encode('utf-8'))
-        print(f"  [OK] Paket Langkah 2 berhasil dikirim ke {id_a} ({addr[0]})")
-        print("Pilihan menu KDC (1/2/3/4/5): ", end="", flush=True)
+        print(f"[Langkah 2] Distribusi Kunci ({id_a} & {id_b})")
+        print(f"  KA: {ka} | KB: {kb} | KS: {ks}")
+        print(f"  Tiket Bob   : {ticket_hex}")
+        print(f"  Paket Alice : {alice_hex}")
 
+        conn.sendall(alice_hex.encode('utf-8'))
     except Exception as e:
-        print(f"\n  [!] Error saat memproses KDC: {e}")
+        print(f"[!] Error KDC: {e}")
     finally:
         conn.close()
 
@@ -76,72 +65,46 @@ def server_loop():
     server.listen(5)
     server.settimeout(1.0)
 
-    while state["running"]:
+    while running:
         try:
             conn, addr = server.accept()
             threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
         except socket.timeout:
             continue
-        except Exception as e:
-            if state["running"]:
-                print(f"\n[!] Server error: {e}")
+        except Exception:
             break
     server.close()
 
 
 def main():
-    t = threading.Thread(target=server_loop, daemon=True)
-    t.start()
-
-    print("==================================================")
-    print(f"   KEY DISTRIBUTION CENTER (KDC) AKTIF            ")
-    print(f"   IP Address : {KDC_IP} | Port : {KDC_PORT}       ")
-    print("==================================================")
+    global running
+    threading.Thread(target=server_loop, daemon=True).start()
+    print(f"KDC aktif di {KDC_IP}:{KDC_PORT}")
 
     while True:
-        print("\n--- MENU INTERAKTIF KDC ---")
-        print(f"1. Lihat Konfigurasi Kunci Saat Ini")
-        print(f"2. Ubah Master Key Alice (KA) [Saat ini: {state['KA']}]")
-        print(f"3. Ubah Master Key Bob   (KB) [Saat ini: {state['KB']}]")
-        print(f"4. Atur Session Key (KS)      [Mode: {state['KS_MODE']}]")
-        print("5. Keluar")
+        print("\n--- MENU KDC ---")
+        print(f"1. Lihat Master Key (KA: {keys['ALICE']}, KB: {keys['BOB']})")
+        print("2. Ubah Master Key Alice (KA)")
+        print("3. Ubah Master Key Bob (KB)")
+        print("4. Keluar")
 
-        choice = input("Pilihan menu KDC (1/2/3/4/5): ").strip()
-
+        choice = input("Pilihan > ").strip()
         if choice == "1":
-            print(f"\n[INFO KUNCI KDC]")
-            print(f"  KA (Master Key Alice) : {state['KA']}")
-            print(f"  KB (Master Key Bob)   : {state['KB']}")
-            print(f"  Mode Session Key (KS) : {state['KS_MODE']}")
-            if state["KS_MODE"] == "MANUAL":
-                print(f"  KS Manual             : {state['KS_MANUAL']}")
+            print(f"KA : {keys['ALICE']}")
+            print(f"KB : {keys['BOB']}")
         elif choice == "2":
-            new_ka = input("Masukkan Master Key Alice (KA) baru (ASCII): ").strip()
-            if new_ka:
-                state["KA"] = new_ka
-                print(f"[OK] KA diperbarui menjadi: {state['KA']}")
+            val = input("KA Baru (ASCII): ").strip()
+            if val:
+                keys["ALICE"] = val
+                print(f"[OK] KA diubah: {keys['ALICE']}")
         elif choice == "3":
-            new_kb = input("Masukkan Master Key Bob (KB) baru (ASCII): ").strip()
-            if new_kb:
-                state["KB"] = new_kb
-                print(f"[OK] KB diperbarui menjadi: {state['KB']}")
+            val = input("KB Baru (ASCII): ").strip()
+            if val:
+                keys["BOB"] = val
+                print(f"[OK] KB diubah: {keys['BOB']}")
         elif choice == "4":
-            mode = input("Pilih mode KS (1 = Otomatis Acak, 2 = Input Manual): ").strip()
-            if mode == "1":
-                state["KS_MODE"] = "AUTO"
-                print("[OK] Session Key diatur ke mode Otomatis (Acak 16 karakter).")
-            elif mode == "2":
-                ks_man = input("Masukkan Session Key (KS) manual (ASCII): ").strip()
-                if ks_man:
-                    state["KS_MODE"] = "MANUAL"
-                    state["KS_MANUAL"] = ks_man
-                    print(f"[OK] Session Key manual diatur ke: {state['KS_MANUAL']}")
-        elif choice == "5":
-            state["running"] = False
-            print("Menutup KDC...")
+            running = False
             break
-        else:
-            print("[!] Pilihan tidak valid.")
 
 
 if __name__ == "__main__":

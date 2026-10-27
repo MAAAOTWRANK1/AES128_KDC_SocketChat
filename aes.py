@@ -1,8 +1,6 @@
 # aes.py
-# Implementasi Manual AES-128 (ECB Mode dengan PKCS#7 Padding)
-# Input Key & Plaintext: ASCII | Output Ciphertext: Hexadecimal
+# Implementasi Manual AES-128 (ECB Mode & PKCS#7 Padding)
 
-# Lookup Table S-Box untuk SubBytes
 S_BOX = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -22,7 +20,6 @@ S_BOX = [
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 ]
 
-# Lookup Table Inverse S-Box untuk InvSubBytes (Dekripsi)
 INV_S_BOX = [
     0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
     0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -42,12 +39,12 @@ INV_S_BOX = [
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 ]
 
-# Round Constant (Rcon) untuk Key Expansion
+# Rcon: Round constant untuk menghilangkan simetri pada key schedule
 RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
 
 
 def gmul(a: int, b: int) -> int:
-    """Perkalian dua angka di dalam Galois Field GF(2^8)"""
+    # Perkalian di GF(2^8) dengan reduksi polinomial m(x) = x^8 + x^4 + x^3 + x + 1 (0x11B / 0x1B)
     p = 0
     for _ in range(8):
         if b & 1:
@@ -55,13 +52,12 @@ def gmul(a: int, b: int) -> int:
         hi_bit_set = a & 0x80
         a = (a << 1) & 0xFF
         if hi_bit_set:
-            a ^= 0x1B
+            a ^= 0x1B  # Reduksi modulo jika overflow melewati derajat 7
         b >>= 1
     return p
 
 
 def prepare_key(key_str: str) -> bytes:
-    """Memastikan kunci ASCII tepat 16 byte (128 bit)"""
     key_bytes = key_str.encode('utf-8')
     if len(key_bytes) < 16:
         return key_bytes.ljust(16, b'\x00')
@@ -69,25 +65,21 @@ def prepare_key(key_str: str) -> bytes:
 
 
 def pad_pkcs7(data: bytes) -> bytes:
-    """Menambahkan padding PKCS#7 agar panjang data kelipatan 16 byte"""
     pad_len = 16 - (len(data) % 16)
     return data + bytes([pad_len] * pad_len)
 
 
 def unpad_pkcs7(data: bytes) -> bytes:
-    """Menghapus padding PKCS#7 setelah dekripsi"""
     if not data:
         return b""
     pad_len = data[-1]
-    if pad_len < 1 or pad_len > 16:
+    if pad_len < 1 or pad_len > 16 or data[-pad_len:] != bytes([pad_len] * pad_len):
         raise ValueError("Padding tidak valid atau kunci salah!")
-    if data[-pad_len:] != bytes([pad_len] * pad_len):
-        raise ValueError("Padding rusak atau kunci salah!")
     return data[:-pad_len]
 
 
 def bytes_to_matrix(text: bytes) -> list:
-    """Mengubah 16 byte array menjadi matriks state 4x4 (Column-Major)"""
+    # Mengisi matriks 4x4 secara column-major sesuai standar AES FIPS-197
     matrix = [[0] * 4 for _ in range(4)]
     for i in range(16):
         matrix[i % 4][i // 4] = text[i]
@@ -95,7 +87,6 @@ def bytes_to_matrix(text: bytes) -> list:
 
 
 def matrix_to_bytes(matrix: list) -> bytes:
-    """Mengubah matriks state 4x4 kembali menjadi 16 byte array"""
     out = bytearray(16)
     for i in range(16):
         out[i] = matrix[i % 4][i // 4]
@@ -103,18 +94,13 @@ def matrix_to_bytes(matrix: list) -> bytes:
 
 
 def key_expansion(key_bytes: bytes) -> list:
-    """Menghasilkan 11 Round Keys (masing-masing matriks 4x4) dari 16-byte Master Key"""
     key_words = [list(key_bytes[i:i+4]) for i in range(0, 16, 4)]
-
     for i in range(4, 44):
         temp = list(key_words[i - 1])
         if i % 4 == 0:
-            # RotWord: geser kiri 1 byte
-            temp = temp[1:] + temp[:1]
-            # SubWord: substitusi dengan S-Box
-            temp = [S_BOX[b] for b in temp]
-            # XOR byte pertama dengan Rcon
-            temp[0] ^= RCON[i // 4]
+            temp = temp[1:] + temp[:1]          # RotWord
+            temp = [S_BOX[b] for b in temp]     # SubWord
+            temp[0] ^= RCON[i // 4]             # XOR dengan Rcon
         key_words.append([key_words[i - 4][j] ^ temp[j] for j in range(4)])
 
     round_keys = []
@@ -127,42 +113,36 @@ def key_expansion(key_bytes: bytes) -> list:
 
 
 def add_round_key(state: list, round_key: list):
-    """Operasi XOR antara matriks state dan Round Key"""
     for r in range(4):
         for c in range(4):
             state[r][c] ^= round_key[r][c]
 
 
 def sub_bytes(state: list):
-    """Substitusi setiap byte di state menggunakan S-Box"""
     for r in range(4):
         for c in range(4):
             state[r][c] = S_BOX[state[r][c]]
 
 
 def inv_sub_bytes(state: list):
-    """Substitusi balik menggunakan Inverse S-Box"""
     for r in range(4):
         for c in range(4):
             state[r][c] = INV_S_BOX[state[r][c]]
 
 
 def shift_rows(state: list):
-    """Geser baris ke-r ke kiri sebanyak r langkah"""
     state[1] = state[1][1:] + state[1][:1]
     state[2] = state[2][2:] + state[2][:2]
     state[3] = state[3][3:] + state[3][:3]
 
 
 def inv_shift_rows(state: list):
-    """Geser baris ke-r ke kanan sebanyak r langkah"""
     state[1] = state[1][-1:] + state[1][:-1]
     state[2] = state[2][-2:] + state[2][:-2]
     state[3] = state[3][-3:] + state[3][:-3]
 
 
 def mix_columns(state: list):
-    """Transformasi setiap kolom dengan perkalian matriks di GF(2^8)"""
     for c in range(4):
         a = [state[r][c] for r in range(4)]
         state[0][c] = gmul(a[0], 2) ^ gmul(a[1], 3) ^ a[2] ^ a[3]
@@ -172,7 +152,6 @@ def mix_columns(state: list):
 
 
 def inv_mix_columns(state: list):
-    """Transformasi balik kolom dengan matriks invers di GF(2^8)"""
     for c in range(4):
         a = [state[r][c] for r in range(4)]
         state[0][c] = gmul(a[0], 0x0e) ^ gmul(a[1], 0x0b) ^ gmul(a[2], 0x0d) ^ gmul(a[3], 0x09)
@@ -182,7 +161,6 @@ def inv_mix_columns(state: list):
 
 
 def encrypt_block(block: bytes, round_keys: list) -> bytes:
-    """Enkripsi 1 blok (16 byte) dengan 10 putaran AES-128"""
     state = bytes_to_matrix(block)
     add_round_key(state, round_keys[0])
 
@@ -192,16 +170,14 @@ def encrypt_block(block: bytes, round_keys: list) -> bytes:
         mix_columns(state)
         add_round_key(state, round_keys[round_num])
 
-    # Putaran ke-10 (tanpa MixColumns)
+    # Round 10 tanpa MixColumns untuk simetri struktur enkripsi-dekripsi
     sub_bytes(state)
     shift_rows(state)
     add_round_key(state, round_keys[10])
-
     return matrix_to_bytes(state)
 
 
 def decrypt_block(block: bytes, round_keys: list) -> bytes:
-    """Dekripsi 1 blok (16 byte) dengan 10 putaran AES-128"""
     state = bytes_to_matrix(block)
     add_round_key(state, round_keys[10])
 
@@ -211,56 +187,38 @@ def decrypt_block(block: bytes, round_keys: list) -> bytes:
         add_round_key(state, round_keys[round_num])
         inv_mix_columns(state)
 
-    # Putaran terakhir
     inv_shift_rows(state)
     inv_sub_bytes(state)
     add_round_key(state, round_keys[0])
-
     return matrix_to_bytes(state)
 
 
-def encrypt(plaintext_ascii: str, key_ascii: str) -> str:
-    """Fungsi utama: Enkripsi string ASCII menjadi Ciphertext Hexadecimal"""
-    key_bytes = prepare_key(key_ascii)
+def encrypt(plaintext: str, key: str) -> str:
+    key_bytes = prepare_key(key)
     round_keys = key_expansion(key_bytes)
-    padded_data = pad_pkcs7(plaintext_ascii.encode('utf-8'))
-
-    ciphertext_bytes = bytearray()
-    for i in range(0, len(padded_data), 16):
-        block = padded_data[i:i+16]
-        ciphertext_bytes.extend(encrypt_block(block, round_keys))
-
-    return ciphertext_bytes.hex().upper()
+    padded = pad_pkcs7(plaintext.encode('utf-8'))
+    out = bytearray()
+    for i in range(0, len(padded), 16):
+        out.extend(encrypt_block(padded[i:i+16], round_keys))
+    return out.hex().upper()
 
 
-def decrypt(ciphertext_hex: str, key_ascii: str) -> str:
-    """Fungsi utama: Dekripsi Ciphertext Hexadecimal kembali menjadi string ASCII"""
-    key_bytes = prepare_key(key_ascii)
+def decrypt(ciphertext_hex: str, key: str) -> str:
+    key_bytes = prepare_key(key)
     round_keys = key_expansion(key_bytes)
-    cipher_bytes = bytes.fromhex(ciphertext_hex)
-
-    if len(cipher_bytes) % 16 != 0:
-        raise ValueError("Panjang ciphertext hex harus kelipatan 32 karakter (16 byte)!")
-
-    decrypted_padded = bytearray()
-    for i in range(0, len(cipher_bytes), 16):
-        block = cipher_bytes[i:i+16]
-        decrypted_padded.extend(decrypt_block(block, round_keys))
-
-    unpadded_data = unpad_pkcs7(bytes(decrypted_padded))
-    return unpadded_data.decode('utf-8')
+    raw = bytes.fromhex(ciphertext_hex)
+    if len(raw) % 16 != 0:
+        raise ValueError("Ciphertext harus kelipatan 16 byte (32 karakter hex)!")
+    out = bytearray()
+    for i in range(0, len(raw), 16):
+        out.extend(decrypt_block(raw[i:i+16], round_keys))
+    return unpad_pkcs7(bytes(out)).decode('utf-8')
 
 
-# Blok pengujian mandiri jika file aes.py dijalankan langsung
 if __name__ == "__main__":
-    print("=== UJI COBA MANUAL AES-128 ===")
-    sample_key = "kunci_rahasia_16"
-    sample_text = "Halo Bob, ini pesan rahasia dari Alice!"
-
-    cipher_hex = encrypt(sample_text, sample_key)
-    decrypted_text = decrypt(cipher_hex, sample_key)
-
-    print(f"Key (ASCII)        : {sample_key}")
-    print(f"Plaintext (ASCII)  : {sample_text}")
-    print(f"Ciphertext (Hex)   : {cipher_hex}")
-    print(f"Hasil Dekripsi     : {decrypted_text}")
+    key = "kunci_rahasia_16"
+    pesan = "Halo Bob, ini pesan rahasia dari Alice!"
+    ct = encrypt(pesan, key)
+    print("Plaintext :", pesan)
+    print("Ciphertext:", ct)
+    print("Dekripsi  :", decrypt(ct, key))
